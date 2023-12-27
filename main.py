@@ -7,9 +7,12 @@ import torch
 from sac import SAC
 from torch.utils.tensorboard import SummaryWriter
 from replay_memory import ReplayMemory
+import utils
+from environment import *
+import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser(description='PyTorch Soft Actor-Critic Args')
-parser.add_argument('--env-name', default="HalfCheetah-v2",
+parser.add_argument('--env-name', default="kubernetes_pod_container_kibana_train_scaled",
                     help='Mujoco Gym environment (default: HalfCheetah-v2)')
 parser.add_argument('--policy', default="Gaussian",
                     help='Policy Type: Gaussian | Deterministic (default: Gaussian)')
@@ -30,7 +33,7 @@ parser.add_argument('--seed', type=int, default=123456, metavar='N',
                     help='random seed (default: 123456)')
 parser.add_argument('--batch_size', type=int, default=256, metavar='N',
                     help='batch size (default: 256)')
-parser.add_argument('--num_steps', type=int, default=1000001, metavar='N',
+parser.add_argument('--num_steps', type=int, default=10000000, metavar='N',
                     help='maximum number of steps (default: 1000000)')
 parser.add_argument('--hidden_size', type=int, default=256, metavar='N',
                     help='hidden size (default: 256)')
@@ -48,7 +51,9 @@ args = parser.parse_args()
 
 # Environment
 # env = NormalizedActions(gym.make(args.env_name))
-env = gym.make(args.env_name)
+
+data = utils.getResourceDataVec(args.env_name)
+env = Environment(data)
 env.seed(args.seed)
 env.action_space.seed(args.seed)
 
@@ -68,6 +73,8 @@ memory = ReplayMemory(args.replay_size, args.seed)
 # Training Loop
 total_numsteps = 0
 updates = 0
+plot_reward = []
+plot_steps = []
 
 for i_episode in itertools.count(1):
     episode_reward = 0
@@ -94,6 +101,7 @@ for i_episode in itertools.count(1):
                 writer.add_scalar('entropy_temprature/alpha', alpha, updates)
                 updates += 1
 
+
         next_state, reward, done, _ = env.step(action) # Step
         episode_steps += 1
         total_numsteps += 1
@@ -101,42 +109,51 @@ for i_episode in itertools.count(1):
 
         # Ignore the "done" signal if it comes from hitting the time horizon.
         # (https://github.com/openai/spinningup/blob/master/spinup/algos/sac/sac.py)
-        mask = 1 if episode_steps == env._max_episode_steps else float(not done)
-
-        memory.push(state, action, reward, next_state, mask) # Append transition to memory
+        # done = False if episode_steps < env._max_episode_steps else done
+        memory.push(state, action, reward, next_state, done) # Append transition to memory
 
         state = next_state
+    plot_steps.append(i_episode)
+    plot_reward.append(episode_reward)
 
-    if total_numsteps > args.num_steps:
+
+    if total_numsteps >= args.num_steps:
         break
 
+    agent.save_checkpoint("kibana", "1")
+    plt.plot(plot_steps, plot_reward)
+    plt.xlabel('Timestep')
+    plt.ylabel('Total Reward')
+    plt.savefig('frontend.png')
+    plt.clf()
     writer.add_scalar('reward/train', episode_reward, i_episode)
-    print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".format(i_episode, total_numsteps, episode_steps, round(episode_reward, 2)))
+    print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".
+          format(i_episode, total_numsteps, episode_steps, round(episode_reward, 2)))
 
-    if i_episode % 10 == 0 and args.eval is True:
-        avg_reward = 0.
-        episodes = 10
-        for _  in range(episodes):
-            state = env.reset()
-            episode_reward = 0
-            done = False
-            while not done:
-                action = agent.select_action(state, evaluate=True)
-
-                next_state, reward, done, _ = env.step(action)
-                episode_reward += reward
-
-
-                state = next_state
-            avg_reward += episode_reward
-        avg_reward /= episodes
-
-
-        writer.add_scalar('avg_reward/test', avg_reward, i_episode)
-
-        print("----------------------------------------")
-        print("Test Episodes: {}, Avg. Reward: {}".format(episodes, round(avg_reward, 2)))
-        print("----------------------------------------")
+    # if i_episode % 10 == 0 and args.eval is True:
+    #     avg_reward = 0.
+    #     episodes = 1
+    #     for _  in range(episodes):
+    #         state = env.reset()
+    #         episode_reward = 0
+    #         done = False
+    #         while not done:
+    #             agent.load_checkpoint("checkpoints/sac_checkpoint_kibana_1", True)
+    #             action = agent.select_action(state, evaluate=True)
+    #
+    #             next_state, reward, done, _ = env.step(action, evaluate=True)
+    #             episode_reward += reward
+    #
+    #             state = next_state
+    #         avg_reward += episode_reward
+    #     avg_reward /= episodes
+    #
+    #
+    #     writer.add_scalar('avg_reward/test', avg_reward, i_episode)
+    #
+    #     print("----------------------------------------")
+    #     print("Test Episodes: {}, Avg. Reward: {}".format(episodes, round(avg_reward, 2)))
+    #     print("----------------------------------------")
+    #     break
 
 env.close()
-

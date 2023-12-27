@@ -1,6 +1,15 @@
 import math
 import torch
 
+def getResourceDataVec(key):
+	vec = []
+	lines = open("./input/"+key+".csv", "r").read().splitlines()
+
+	for line in lines[1:]:
+		# vec.append(round(float(line.split(",")[3]) / 1000000000, 2))
+		vec.append(float(line.split(",")[3]))
+
+	return vec
 def create_log_gaussian(mean, log_std, t):
     quadratic = -((0.5 * (t - mean) / (log_std.exp())).pow(2))
     l = mean.shape
